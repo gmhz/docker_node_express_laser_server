@@ -1,0 +1,21 @@
+version: '3'
+services:
+  postgres:
+    image: postgres:10.4
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: fastdata
+
+  web:
+    build: .
+    volumes:
+      - .:/myapp
+    ports:
+      - "8080:8080"
+      - "3031:3031"
+    entrypoint: bash -c "./wait-for-postgres.sh postgres 5432"
+    environment:
+      DATABASE_URL: postgres://user:pass@postgres:5432/fastdata
