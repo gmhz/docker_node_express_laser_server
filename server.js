@@ -8,6 +8,10 @@ const WS_PORT = 3031;
 const PORT = 8080;
 const HOST = '0.0.0.0';
 
+const TABLE_NAME = "locations";
+const EVENT_NAME = "new_testevent";
+const NEW_LOCATION = "new_location";
+
 //Socket io
 const server = require('http').createServer();
 const io = require('socket.io')(server);
@@ -17,31 +21,43 @@ const connetionStr = `postgres://user:pass@postgres:5432/fastdata`;
 const pgClient = new pg.Client(connetionStr);
 pgClient.connect();
 
-const q = pgClient.query("CREATE TABLE IF NOT EXISTS \"mytable\" (id INT PRIMARY KEY, a varchar(50));");
+const q = pgClient.query(
+	`CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
+		id serial PRIMARY KEY, 
+		username VARCHAR(50) UNIQUE,
+		lat decimal (16,6),
+		lng decimal (16,6),
+		speed SMALLINT DEFAULT 0,
+		bearing SMALLINT DEFAULT 0,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);`
+);
+
 pgClient.query(
 	`CREATE OR REPLACE FUNCTION public.notify_testevent()
 	RETURNS trigger
 	LANGUAGE plpgsql
 	AS $function$
 	BEGIN
-	PERFORM pg_notify('new_testevent', row_to_json(NEW)::text);
+	NEW.updated_at = NOW();
+	PERFORM pg_notify('${EVENT_NAME}', row_to_json(NEW)::text);
 	return null;
 	END;
 	$function$`
 	);
 
 
-pgClient.query(`DROP TRIGGER IF EXISTS inserted_test_trigger on "mytable";`);
-pgClient.query(`DROP TRIGGER IF EXISTS updated_test_trigger on "mytable";`);
-pgClient.query("CREATE TRIGGER inserted_test_trigger AFTER INSERT ON mytable FOR EACH ROW EXECUTE PROCEDURE notify_testevent();");
-pgClient.query("CREATE TRIGGER updated_test_trigger AFTER UPDATE ON mytable FOR EACH ROW EXECUTE PROCEDURE notify_testevent();");
+pgClient.query(`DROP TRIGGER IF EXISTS inserted_test_trigger on "${TABLE_NAME}";`);
+pgClient.query(`DROP TRIGGER IF EXISTS updated_test_trigger on "${TABLE_NAME}";`);
+pgClient.query(`CREATE TRIGGER inserted_test_trigger AFTER INSERT ON ${TABLE_NAME} FOR EACH ROW EXECUTE PROCEDURE notify_testevent();`);
+pgClient.query(`CREATE TRIGGER updated_test_trigger AFTER UPDATE ON ${TABLE_NAME} FOR EACH ROW EXECUTE PROCEDURE notify_testevent();`);
 
-const listener = pgClient.query("LISTEN new_testevent");
+const listener = pgClient.query(`LISTEN ${EVENT_NAME}`);
 
 pgClient.on('notification', async(data) => {
 	const payload = JSON.parse(data.payload);
 	console.log(payload);
-	io.emit("upd", payload.a)
+	io.emit(NEW_LOCATION, payload)
 });
 
 io.on('connection', client => {
@@ -53,35 +69,11 @@ io.on('connection', client => {
 server.listen(WS_PORT);
 console.log(`Listening websocket http://${HOST}:${WS_PORT}`);
 
-// App
-const app = express();
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.get('/', (req, res) => {
-	var html='';
-	html +="<body>";
-	html += "<form action='/update'  method='post' name='form1'>";
-	html += "NewValue:</p><input type= 'text' name='newvalue'><br/>";
-	html += "<input type='submit' value='submit'>";
-	html += "</form>";
-	html += "</body>";
-	res.send(html);
-});
 
-app.post('/update', function (req, res){
-	console.log(req.body.newvalue);
-	pgClient.query(`INSERT INTO mytable (id, a) VALUES (1, ${req.body.newvalue}) ON CONFLICT (id) DO UPDATE SET a = excluded.a;`);
-	
-	var html='';
-	html +="<body>";
-	html += "<p>Updated!</p>";
-	html += "<a href=\"/\">Go Back</p>";
-	html += "</body>";
-	res.send(html);
-});
-
-app.listen(PORT, HOST);
-console.log(`Running on http://${HOST}:${PORT}`);
+function getRandomDouble(doubleNum) {
+	let randomedValue = (Math.random() * (0.120 - 0.00002) + 0.00002).toFixed(5)
+    return (parseFloat(doubleNum) + parseFloat(randomedValue)).toFixed(5);
+}
 
 function getRandomInt(min, max) {
     min = Math.ceil(min);
@@ -90,8 +82,16 @@ function getRandomInt(min, max) {
 }
 
 function intervalFunc() {
-	var randVal = getRandomInt(1, 1000);
-    pgClient.query(`INSERT INTO mytable (id, a) VALUES (1, ${randVal}) ON CONFLICT (id) DO UPDATE SET a = excluded.a;`);
+	var lat = getRandomDouble(42.873770);
+	var lng = getRandomDouble(74.570383);
+	var speed = getRandomInt(10, 50);
+	var bearing = getRandomInt(0, 360);
+    pgClient.query(`
+    	INSERT INTO ${TABLE_NAME} 
+    	(username, lat, lng, speed, bearing) VALUES 
+    	('demo_user', ${lat}, ${lng}, ${speed}, ${bearing}) 
+    	ON CONFLICT (username) DO UPDATE SET lat = excluded.lat, lng = excluded.lng, speed = excluded.speed, bearing = excluded.bearing;
+    	`);
 }
 
-setInterval(intervalFunc, 50);	
+setInterval(intervalFunc, 1500);	
