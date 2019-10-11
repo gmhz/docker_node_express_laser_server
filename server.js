@@ -65,6 +65,25 @@ io.on('connection', client => {
 	client.on('disconnect', () => {
 		console.log("\ndisconnected: " + client.id);
 	});
+
+	client.on('user_location_add', function(data){
+		console.log(data);
+		
+		let username = data.username
+		let lat = data.lat
+		let lng = data.lng
+		let speed = data.speed
+		let bearing = data.bearing
+
+		if (username !== undefined && lat !== undefined && lng  !== undefined && speed !== undefined && bearing !== undefined) {
+			pgClient.query(`
+			INSERT INTO ${TABLE_NAME} 
+			(username, lat, lng, speed, bearing) VALUES 
+			('${username}', ${lat}, ${lng}, ${speed}, ${bearing}) 
+			ON CONFLICT (username) DO UPDATE SET lat = excluded.lat, lng = excluded.lng, speed = excluded.speed, bearing = excluded.bearing;
+			`);
+		}
+	})
 });
 server.listen(WS_PORT);
 console.log(`Listening websocket http://${HOST}:${WS_PORT}`);
